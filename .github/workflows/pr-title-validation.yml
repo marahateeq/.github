@@ -12,11 +12,8 @@ on:
       JIRA_BASE_URL:
         description: 'Jira instance URL (e.g., https://your-domain.atlassian.net)'
         required: false
-      JIRA_EMAIL:
-        description: 'Jira user email for authentication'
-        required: false
-      JIRA_API_TOKEN:
-        description: 'Jira API token'
+      JIRA_TOKEN:
+        description: 'Jira Personal Access Token (PAT) for Bearer authentication'
         required: false
   pull_request:
     branches:
@@ -97,15 +94,14 @@ jobs:
         shell: bash
         env:
           JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
-          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
           TICKETS: ${{ needs.validate-title.outputs.ticket-numbers }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # Skip if no Jira configuration provided
-          if [ -z "$JIRA_BASE_URL" ] || [ -z "$JIRA_EMAIL" ] || [ -z "$JIRA_API_TOKEN" ]; then
+          if [ -z "$JIRA_BASE_URL" ] || [ -z "$JIRA_TOKEN" ]; then
             echo "ℹ️  Jira integration not configured. Skipping ticket validation."
             exit 0
           fi
@@ -114,19 +110,15 @@ jobs:
           echo "🔧 Jira Configuration:"
           echo "  Base URL: ${JIRA_BASE_URL}"
           echo "  Base URL Length: ${#JIRA_BASE_URL}"
-          echo "  Email: ${JIRA_EMAIL}"
-          echo "  Email Length: ${#JIRA_EMAIL}"
-          echo "  API Token Length: ${#JIRA_API_TOKEN}"
+          echo "  Auth Method: Bearer Token (Personal Access Token)"
+          echo "  Token Length: ${#JIRA_TOKEN}"
 
           # Check for hidden characters (newlines, carriage returns, etc.)
           if [[ "$JIRA_BASE_URL" =~ [[:space:]]$ ]]; then
             echo "::warning::JIRA_BASE_URL has trailing whitespace"
           fi
-          if [[ "$JIRA_EMAIL" =~ [[:space:]]$ ]]; then
-            echo "::warning::JIRA_EMAIL has trailing whitespace"
-          fi
-          if [[ "$JIRA_API_TOKEN" =~ [[:space:]]$ ]]; then
-            echo "::warning::JIRA_API_TOKEN has trailing whitespace"
+          if [[ "$JIRA_TOKEN" =~ [[:space:]]$ ]]; then
+            echo "::warning::JIRA_TOKEN has trailing whitespace"
           fi
 
           # Validate URL format
@@ -137,14 +129,13 @@ jobs:
 
           # Trim any whitespace from secrets
           JIRA_BASE_URL=$(echo "$JIRA_BASE_URL" | xargs)
-          JIRA_EMAIL=$(echo "$JIRA_EMAIL" | xargs)
-          JIRA_API_TOKEN=$(echo "$JIRA_API_TOKEN" | xargs)
+          JIRA_TOKEN=$(echo "$JIRA_TOKEN" | xargs)
 
           echo ""
-          echo "🧪 Testing Jira connectivity with authentication..."
-          # Use curl's built-in -u flag instead of manual base64 encoding
+          echo "🧪 Testing Jira connectivity with Bearer token..."
+          # Use Bearer token authentication
           test_response=$(curl -s -o /dev/null -w "%{http_code}" \
-            -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+            -H "Authorization: Bearer ${JIRA_TOKEN}" \
             "${JIRA_BASE_URL}/rest/api/3/myself" 2>&1 || echo "CURL_FAILED")
 
           if [[ "$test_response" == "CURL_FAILED" ]]; then
@@ -152,8 +143,8 @@ jobs:
             echo "  ❌ Curl failed - possible network or URL issue"
             exit 1
           elif [ "$test_response" -eq 401 ]; then
-            echo "::error title=Authentication Failed::Invalid credentials"
-            echo "  ❌ HTTP 401 - Check JIRA_EMAIL and JIRA_API_TOKEN"
+            echo "::error title=Authentication Failed::Invalid or expired token"
+            echo "  ❌ HTTP 401 - Check JIRA_TOKEN (Personal Access Token)"
             exit 1
           elif [ "$test_response" -eq 200 ]; then
             echo "  ✅ Authentication successful!"
@@ -187,10 +178,10 @@ jobs:
             fi
 
             # Get ticket status from Jira with verbose error handling
-            # Use curl's -u flag for authentication (avoids base64 encoding issues)
+            # Use Bearer token authentication
             error_output=$(mktemp)
             response=$(curl -s -w "\n%{http_code}" \
-              -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+              -H "Authorization: Bearer ${JIRA_TOKEN}" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
               "$full_url" 2>"$error_output")
@@ -261,7 +252,7 @@ jobs:
             echo "  📊 Current Status: '$status'"
 
             # Normalize status for comparison (trim whitespace, convert to lowercase)
-            normalized_status=$(echo "${status}" | xargs | tr '[:upper:]' '[:lower:]')
+            normalized_status=$(echo "${status}" | tr -d '\r' | xargs | tr '[:upper:]' '[:lower:]')
             echo "  🔍 Normalized status: '$normalized_status' (checking if equals 'in progress')"
 
             # Check if status is "In Progress" (ONLY this status is allowed)
@@ -318,7 +309,7 @@ jobs:
 
               comment_response=$(curl -s -w "\n%{http_code}" \
                 -X POST \
-                -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+                -H "Authorization: Bearer ${JIRA_TOKEN}" \
                 -H "Content-Type: application/json" \
                 -d "$comment_body" \
                 "${JIRA_BASE_URL}/rest/api/3/issue/${ticket}/comment")
