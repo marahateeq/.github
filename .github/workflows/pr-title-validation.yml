@@ -31,8 +31,8 @@ jobs:
           TICKET_PREFIX: ${{ inputs.ticket-prefix || 'KAN' }}
         run: |
           echo "PR title: '$PR_TITLE'"
-          echo "Expected format: '${TICKET_PREFIX}-<number>: <description>' or '${TICKET_PREFIX}-<number> <description>'"
-          if [[ "$PR_TITLE" =~ ^${TICKET_PREFIX}-[1-9][0-9]*([:\s]|[[:space:]]-) ]]; then
+          echo "Expected format: '${TICKET_PREFIX}-<number>: <description>' or '[${TICKET_PREFIX}-<number>] <description>'"
+          if [[ "$PR_TITLE" =~ ^(\[)?${TICKET_PREFIX}-[1-9][0-9]*(\])?[:\s-] ]]; then
             echo "✅ PR title is valid."
           else
             echo "::error title=Invalid PR title::Title must start with '${TICKET_PREFIX}-' followed by a non-zero number and a separator (colon, space, or dash)."
@@ -44,6 +44,9 @@ jobs:
             echo "Examples of VALID titles:"
             echo "  ✅ '${TICKET_PREFIX}-4: Fix login bug'"
             echo "  ✅ '${TICKET_PREFIX}-5 Update feature'"
+            echo "  ✅ '${TICKET_PREFIX}-8-Clean up blank lines'"
             echo "  ✅ '${TICKET_PREFIX}-123 - Add documentation'"
+            echo "  ✅ '[${TICKET_PREFIX}-8] Clean up blank lines'"
+            echo "  ✅ '[${TICKET_PREFIX}-8] -Clean up blank lines'"
             exit 1
           fi
