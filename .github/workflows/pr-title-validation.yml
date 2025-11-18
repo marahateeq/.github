@@ -135,21 +135,50 @@ jobs:
             echo ""
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "Checking ticket: $ticket"
-            echo "URL: ${JIRA_BASE_URL}/rest/api/3/issue/${ticket}"
+
+            # Build the full URL
+            full_url="${JIRA_BASE_URL}/rest/api/3/issue/${ticket}?fields=status,summary"
+            echo "Full URL: $full_url"
+            echo "URL Length: ${#full_url}"
+
+            # Test URL validity
+            if [[ ! "$full_url" =~ ^https?://[a-zA-Z0-9.-]+\. ]]; then
+              echo "::error title=Invalid URL::The constructed URL appears malformed"
+              echo "  ❌ URL validation failed - check JIRA_BASE_URL format"
+              all_valid=false
+              invalid_tickets="$invalid_tickets\n  ❌ $ticket - Invalid URL"
+              continue
+            fi
 
             # Get ticket status from Jira with verbose error handling
+            # Use separate stderr capture
+            error_output=$(mktemp)
             response=$(curl -s -w "\n%{http_code}" \
               -H "Authorization: Basic $AUTH" \
               -H "Content-Type: application/json" \
-              "${JIRA_BASE_URL}/rest/api/3/issue/${ticket}?fields=status,summary" 2>&1)
+              "$full_url" 2>"$error_output")
 
             curl_exit_code=$?
+            curl_stderr=$(cat "$error_output")
+            rm -f "$error_output"
 
             # Check if curl command itself failed
             if [ $curl_exit_code -ne 0 ]; then
               echo "::error title=Curl Error::Failed to connect to Jira (exit code: $curl_exit_code)"
-              echo "  ❌ Curl error $curl_exit_code - Check your JIRA_BASE_URL and network connectivity"
-              echo "  Response: $response"
+              echo "  ❌ Curl exit code: $curl_exit_code"
+              echo "  📝 Error message: $curl_stderr"
+              echo "  📋 Response: $response"
+
+              # Explain common curl exit codes
+              case $curl_exit_code in
+                6) echo "  💡 Could not resolve host - DNS issue or wrong domain" ;;
+                7) echo "  💡 Failed to connect - Network/firewall issue or wrong URL" ;;
+                28) echo "  💡 Timeout - Server not responding" ;;
+                35) echo "  💡 SSL connection error" ;;
+                43) echo "  💡 Internal error or malformed URL" ;;
+                60) echo "  💡 SSL certificate problem" ;;
+              esac
+
               all_valid=false
               invalid_tickets="$invalid_tickets\n  ❌ $ticket - Connection failed (curl error $curl_exit_code)"
               continue
