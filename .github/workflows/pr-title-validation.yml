@@ -32,7 +32,7 @@ jobs:
         run: |
           echo "PR title: '$PR_TITLE'"
           echo "Expected format: '${TICKET_PREFIX}-<number>: <description>' or '[${TICKET_PREFIX}-<number>] <description>'"
-          if [[ "$PR_TITLE" =~ ^(\[)?${TICKET_PREFIX}-[1-9][0-9]*(\])?[:\s-] ]]; then
+          if [[ "$PR_TITLE" =~ ^(\[${TICKET_PREFIX}-[1-9][0-9]*\]\ |${TICKET_PREFIX}-[1-9][0-9]*[:\s-]) ]]; then
             echo "✅ PR title is valid."
           else
             echo "::error title=Invalid PR title::Title must start with '${TICKET_PREFIX}-' followed by a non-zero number and a separator (colon, space, or dash)."
