@@ -140,19 +140,26 @@ jobs:
           JIRA_EMAIL=$(echo "$JIRA_EMAIL" | xargs)
           JIRA_API_TOKEN=$(echo "$JIRA_API_TOKEN" | xargs)
 
-          # Create base64 encoded credentials for Basic Auth
-          AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64)
-
           echo ""
-          echo "🧪 Testing Jira connectivity..."
-          # Simple test without authentication first
-          test_response=$(curl -s -o /dev/null -w "%{http_code}" "${JIRA_BASE_URL}/rest/api/3/myself" 2>&1 || echo "CURL_FAILED")
+          echo "🧪 Testing Jira connectivity with authentication..."
+          # Use curl's built-in -u flag instead of manual base64 encoding
+          test_response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+            "${JIRA_BASE_URL}/rest/api/3/myself" 2>&1 || echo "CURL_FAILED")
+
           if [[ "$test_response" == "CURL_FAILED" ]]; then
-            echo "::error title=Connection Failed::Cannot reach Jira server at ${JIRA_BASE_URL}"
-            echo "  ❌ Basic connectivity test failed - check JIRA_BASE_URL"
+            echo "::error title=Connection Failed::Cannot reach Jira server"
+            echo "  ❌ Curl failed - possible network or URL issue"
             exit 1
+          elif [ "$test_response" -eq 401 ]; then
+            echo "::error title=Authentication Failed::Invalid credentials"
+            echo "  ❌ HTTP 401 - Check JIRA_EMAIL and JIRA_API_TOKEN"
+            exit 1
+          elif [ "$test_response" -eq 200 ]; then
+            echo "  ✅ Authentication successful!"
+          else
+            echo "  ⚠️  Unexpected response: $test_response (continuing anyway)"
           fi
-          echo "  ✅ Jira server is reachable (HTTP response: $test_response)"
 
           echo ""
           echo "🔍 Checking Jira tickets: $TICKETS"
@@ -180,11 +187,12 @@ jobs:
             fi
 
             # Get ticket status from Jira with verbose error handling
-            # Use separate stderr capture
+            # Use curl's -u flag for authentication (avoids base64 encoding issues)
             error_output=$(mktemp)
             response=$(curl -s -w "\n%{http_code}" \
-              -H "Authorization: Basic $AUTH" \
+              -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
               -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
               "$full_url" 2>"$error_output")
 
             curl_exit_code=$?
@@ -310,7 +318,7 @@ jobs:
 
               comment_response=$(curl -s -w "\n%{http_code}" \
                 -X POST \
-                -H "Authorization: Basic $AUTH" \
+                -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
                 -H "Content-Type: application/json" \
                 -d "$comment_body" \
                 "${JIRA_BASE_URL}/rest/api/3/issue/${ticket}/comment")
