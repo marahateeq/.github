@@ -11,13 +11,13 @@ on:
     secrets:
       JIRA_BASE_URL:
         description: 'Jira instance URL (e.g., https://your-domain.atlassian.net)'
-        required: true
+        required: false
       JIRA_EMAIL:
         description: 'Jira user email for authentication'
-        required: true
+        required: false
       JIRA_API_TOKEN:
         description: 'Jira API token'
-        required: true
+        required: false
   pull_request:
     branches:
       - main
@@ -104,6 +104,12 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          # Skip if no Jira configuration provided
+          if [ -z "$JIRA_BASE_URL" ] || [ -z "$JIRA_EMAIL" ] || [ -z "$JIRA_API_TOKEN" ]; then
+            echo "ℹ️  Jira integration not configured. Skipping ticket validation."
+            exit 0
+          fi
+
           # Create base64 encoded credentials for Basic Auth
           AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64)
 
