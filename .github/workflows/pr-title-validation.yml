@@ -8,6 +8,16 @@ on:
         required: false
         type: string
         default: 'KAN'
+    secrets:
+      JIRA_BASE_URL:
+        description: 'Jira instance URL (e.g., https://your-domain.atlassian.net)'
+        required: true
+      JIRA_EMAIL:
+        description: 'Jira user email for authentication'
+        required: true
+      JIRA_API_TOKEN:
+        description: 'Jira API token'
+        required: true
   pull_request:
     branches:
       - main
@@ -22,9 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
+    outputs:
+      ticket-numbers: ${{ steps.extract-tickets.outputs.tickets }}
     steps:
       - name: Check PR title starts with ticket number
+        id: validate-format
         shell: bash
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -59,4 +72,156 @@ jobs:
             echo "  ❌ '${TICKET_PREFIX}-01' (leading zero)"
             echo "  ❌ '${TICKET_PREFIX}-8Update' (no separator after number)"
             exit 1
+          fi
+
+      - name: Extract ticket numbers
+        id: extract-tickets
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          TICKET_PREFIX: ${{ inputs.ticket-prefix || 'KAN' }}
+        run: |
+          # Extract all ticket numbers from the PR title
+          tickets=$(echo "$PR_TITLE" | grep -oE "${TICKET_PREFIX}-[1-9][0-9]*" | sort -u | tr '\n' ' ')
+          echo "Extracted tickets: $tickets"
+          echo "tickets=$tickets" >> $GITHUB_OUTPUT
+
+  validate-jira-status:
+    name: Validate Jira ticket status
+    needs: validate-title
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check Jira ticket status and add PR comment
+        shell: bash
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          TICKETS: ${{ needs.validate-title.outputs.ticket-numbers }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Create base64 encoded credentials for Basic Auth
+          AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64)
+
+          echo "🔍 Checking Jira tickets: $TICKETS"
+
+          all_valid=true
+          invalid_tickets=""
+
+          for ticket in $TICKETS; do
+            echo ""
+            echo "Checking ticket: $ticket"
+
+            # Get ticket status from Jira
+            response=$(curl -s -w "\n%{http_code}" \
+              -H "Authorization: Basic $AUTH" \
+              -H "Content-Type: application/json" \
+              "${JIRA_BASE_URL}/rest/api/3/issue/${ticket}?fields=status,summary")
+
+            http_code=$(echo "$response" | tail -n1)
+            body=$(echo "$response" | sed '$d')
+
+            if [ "$http_code" -ne 200 ]; then
+              echo "::error title=Jira ticket not found::Ticket $ticket does not exist in Jira (HTTP $http_code)"
+              all_valid=false
+              invalid_tickets="$invalid_tickets\n  ❌ $ticket - Not found in Jira"
+              continue
+            fi
+
+            # Parse status from JSON response
+            status=$(echo "$body" | grep -o '"status":{[^}]*"name":"[^"]*"' | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
+            summary=$(echo "$body" | grep -o '"summary":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+            echo "  Status: $status"
+            echo "  Summary: $summary"
+
+            # Check if status is "In Progress" (case-insensitive)
+            if [[ "${status,,}" == "in progress" ]]; then
+              echo "  ✅ Status is valid"
+
+              # Add PR comment to Jira issue
+              comment_body=$(cat <<EOF
+          {
+            "body": {
+              "type": "doc",
+              "version": 1,
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Pull Request #${PR_NUMBER} created: "
+                    },
+                    {
+                      "type": "text",
+                      "text": "${PR_TITLE}",
+                      "marks": [{"type": "strong"}]
+                    }
+                  ]
+                },
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "🔗 "
+                    },
+                    {
+                      "type": "text",
+                      "text": "${PR_URL}",
+                      "marks": [
+                        {
+                          "type": "link",
+                          "attrs": {
+                            "href": "${PR_URL}"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+          EOF
+              )
+
+              comment_response=$(curl -s -w "\n%{http_code}" \
+                -X POST \
+                -H "Authorization: Basic $AUTH" \
+                -H "Content-Type: application/json" \
+                -d "$comment_body" \
+                "${JIRA_BASE_URL}/rest/api/3/issue/${ticket}/comment")
+
+              comment_http_code=$(echo "$comment_response" | tail -n1)
+
+              if [ "$comment_http_code" -eq 201 ]; then
+                echo "  ✅ PR comment added to Jira ticket"
+              else
+                echo "  ⚠️  Failed to add comment to Jira (HTTP $comment_http_code)"
+              fi
+
+            else
+              echo "::error title=Invalid Jira status::Ticket $ticket has status '$status' but must be 'In Progress'"
+              all_valid=false
+              invalid_tickets="$invalid_tickets\n  ❌ $ticket - Status is '$status' (expected 'In Progress')"
+            fi
+          done
+
+          echo ""
+          if [ "$all_valid" = false ]; then
+            echo "::error title=Jira validation failed::One or more tickets have invalid status"
+            echo ""
+            echo "❌ Validation failed for the following tickets:"
+            echo -e "$invalid_tickets"
+            echo ""
+            echo "📋 Required: All tickets must have status 'In Progress' before the PR can be merged."
+            exit 1
+          else
+            echo "✅ All Jira tickets are valid and in 'In Progress' status"
           fi
