@@ -244,7 +244,7 @@ jobs:
             fi
 
             # Parse status from JSON response
-            status=$(echo "$body" | grep -o '"status":{[^}]*"name":"[^"]*"' | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
+            status=$(echo "$body" | grep -o '"status":{[^}]*"name":"[^"]*"' | head -1 | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
             summary=$(echo "$body" | grep -o '"summary":"[^"]*"' | head -1 | cut -d'"' -f4)
 
             # Check if parsing was successful
