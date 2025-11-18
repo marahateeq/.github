@@ -222,7 +222,7 @@ jobs:
               echo "  Response body: $body"
 
               if [ "$http_code" -eq 401 ]; then
-                echo "  ❌ Authentication failed - Check JIRA_EMAIL and JIRA_API_TOKEN"
+                echo "  ❌ Authentication failed - Check JIRA_API_TOKEN"
               elif [ "$http_code" -eq 404 ]; then
                 echo "  ❌ Ticket not found - Does $ticket exist in your Jira?"
               elif [ "$http_code" -eq 403 ]; then
@@ -253,10 +253,11 @@ jobs:
 
             # Normalize status for comparison (trim whitespace, convert to lowercase)
             normalized_status=$(echo "${status}" | tr -d '\r' | xargs | tr '[:upper:]' '[:lower:]')
-            echo "  🔍 Normalized status: '$normalized_status' (checking if equals 'in progress')"
+            echo "  🔍 Normalized status: '$normalized_status' (length: ${#normalized_status})"
+            printf "  🔍 Normalized bytes: %q\n" "$normalized_status"
 
             # Check if status is "In Progress" (ONLY this status is allowed)
-            if [[ "$normalized_status" == "In Progress" ]]; then
+            if [[ "$normalized_status" == "in progress" || "$normalized_status" =~ ^in[[:space:]]*progress$ ]]; then
               echo "  ✅ Status is VALID - Ticket is 'In Progress'"
 
               # Add PR comment to Jira issue
