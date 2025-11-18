@@ -113,8 +113,21 @@ jobs:
           # Debug: Show configuration (without exposing secrets)
           echo "🔧 Jira Configuration:"
           echo "  Base URL: ${JIRA_BASE_URL}"
+          echo "  Base URL Length: ${#JIRA_BASE_URL}"
           echo "  Email: ${JIRA_EMAIL}"
-          echo "  API Token: [REDACTED]"
+          echo "  Email Length: ${#JIRA_EMAIL}"
+          echo "  API Token Length: ${#JIRA_API_TOKEN}"
+
+          # Check for hidden characters (newlines, carriage returns, etc.)
+          if [[ "$JIRA_BASE_URL" =~ [[:space:]]$ ]]; then
+            echo "::warning::JIRA_BASE_URL has trailing whitespace"
+          fi
+          if [[ "$JIRA_EMAIL" =~ [[:space:]]$ ]]; then
+            echo "::warning::JIRA_EMAIL has trailing whitespace"
+          fi
+          if [[ "$JIRA_API_TOKEN" =~ [[:space:]]$ ]]; then
+            echo "::warning::JIRA_API_TOKEN has trailing whitespace"
+          fi
 
           # Validate URL format
           if [[ ! "$JIRA_BASE_URL" =~ ^https?:// ]]; then
@@ -122,8 +135,24 @@ jobs:
             exit 1
           fi
 
+          # Trim any whitespace from secrets
+          JIRA_BASE_URL=$(echo "$JIRA_BASE_URL" | xargs)
+          JIRA_EMAIL=$(echo "$JIRA_EMAIL" | xargs)
+          JIRA_API_TOKEN=$(echo "$JIRA_API_TOKEN" | xargs)
+
           # Create base64 encoded credentials for Basic Auth
           AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64)
+
+          echo ""
+          echo "🧪 Testing Jira connectivity..."
+          # Simple test without authentication first
+          test_response=$(curl -s -o /dev/null -w "%{http_code}" "${JIRA_BASE_URL}/rest/api/3/myself" 2>&1 || echo "CURL_FAILED")
+          if [[ "$test_response" == "CURL_FAILED" ]]; then
+            echo "::error title=Connection Failed::Cannot reach Jira server at ${JIRA_BASE_URL}"
+            echo "  ❌ Basic connectivity test failed - check JIRA_BASE_URL"
+            exit 1
+          fi
+          echo "  ✅ Jira server is reachable (HTTP response: $test_response)"
 
           echo ""
           echo "🔍 Checking Jira tickets: $TICKETS"
