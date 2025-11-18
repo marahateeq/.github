@@ -110,9 +110,22 @@ jobs:
             exit 0
           fi
 
+          # Debug: Show configuration (without exposing secrets)
+          echo "🔧 Jira Configuration:"
+          echo "  Base URL: ${JIRA_BASE_URL}"
+          echo "  Email: ${JIRA_EMAIL}"
+          echo "  API Token: [REDACTED]"
+
+          # Validate URL format
+          if [[ ! "$JIRA_BASE_URL" =~ ^https?:// ]]; then
+            echo "::error title=Invalid Jira URL::JIRA_BASE_URL must start with http:// or https://"
+            exit 1
+          fi
+
           # Create base64 encoded credentials for Basic Auth
           AUTH=$(echo -n "${JIRA_EMAIL}:${JIRA_API_TOKEN}" | base64)
 
+          echo ""
           echo "🔍 Checking Jira tickets: $TICKETS"
 
           all_valid=true
@@ -120,21 +133,47 @@ jobs:
 
           for ticket in $TICKETS; do
             echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             echo "Checking ticket: $ticket"
+            echo "URL: ${JIRA_BASE_URL}/rest/api/3/issue/${ticket}"
 
-            # Get ticket status from Jira
+            # Get ticket status from Jira with verbose error handling
             response=$(curl -s -w "\n%{http_code}" \
               -H "Authorization: Basic $AUTH" \
               -H "Content-Type: application/json" \
-              "${JIRA_BASE_URL}/rest/api/3/issue/${ticket}?fields=status,summary")
+              "${JIRA_BASE_URL}/rest/api/3/issue/${ticket}?fields=status,summary" 2>&1)
+
+            curl_exit_code=$?
+
+            # Check if curl command itself failed
+            if [ $curl_exit_code -ne 0 ]; then
+              echo "::error title=Curl Error::Failed to connect to Jira (exit code: $curl_exit_code)"
+              echo "  ❌ Curl error $curl_exit_code - Check your JIRA_BASE_URL and network connectivity"
+              echo "  Response: $response"
+              all_valid=false
+              invalid_tickets="$invalid_tickets\n  ❌ $ticket - Connection failed (curl error $curl_exit_code)"
+              continue
+            fi
 
             http_code=$(echo "$response" | tail -n1)
             body=$(echo "$response" | sed '$d')
 
+            echo "  HTTP Status: $http_code"
+
             if [ "$http_code" -ne 200 ]; then
-              echo "::error title=Jira ticket not found::Ticket $ticket does not exist in Jira (HTTP $http_code)"
+              echo "::error title=Jira API Error::Ticket $ticket request failed (HTTP $http_code)"
+              echo "  Response body: $body"
+
+              if [ "$http_code" -eq 401 ]; then
+                echo "  ❌ Authentication failed - Check JIRA_EMAIL and JIRA_API_TOKEN"
+              elif [ "$http_code" -eq 404 ]; then
+                echo "  ❌ Ticket not found - Does $ticket exist in your Jira?"
+              elif [ "$http_code" -eq 403 ]; then
+                echo "  ❌ Permission denied - Your API token may not have access to this ticket"
+              fi
+
               all_valid=false
-              invalid_tickets="$invalid_tickets\n  ❌ $ticket - Not found in Jira"
+              invalid_tickets="$invalid_tickets\n  ❌ $ticket - HTTP $http_code error"
               continue
             fi
 
@@ -142,11 +181,22 @@ jobs:
             status=$(echo "$body" | grep -o '"status":{[^}]*"name":"[^"]*"' | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
             summary=$(echo "$body" | grep -o '"summary":"[^"]*"' | head -1 | cut -d'"' -f4)
 
+            # Check if parsing was successful
+            if [ -z "$status" ]; then
+              echo "::error title=Parse Error::Failed to extract status from Jira response"
+              echo "  ❌ Could not parse status from JSON response"
+              echo "  Raw response: $body"
+              all_valid=false
+              invalid_tickets="$invalid_tickets\n  ❌ $ticket - Failed to parse status"
+              continue
+            fi
+
             echo "  📋 Summary: $summary"
             echo "  📊 Current Status: '$status'"
 
             # Normalize status for comparison (trim whitespace, convert to lowercase)
             normalized_status=$(echo "${status}" | xargs | tr '[:upper:]' '[:lower:]')
+            echo "  🔍 Normalized status: '$normalized_status' (checking if equals 'in progress')"
 
             # Check if status is "In Progress" (ONLY this status is allowed)
             if [[ "$normalized_status" == "in progress" ]]; then
