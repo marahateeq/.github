@@ -31,22 +31,32 @@ jobs:
           TICKET_PREFIX: ${{ inputs.ticket-prefix || 'KAN' }}
         run: |
           echo "PR title: '$PR_TITLE'"
-          echo "Expected format: '${TICKET_PREFIX}-<number>: <description>' or '[${TICKET_PREFIX}-<number>] <description>'"
-          if [[ "$PR_TITLE" =~ ^(\[${TICKET_PREFIX}-[1-9][0-9]*\][[:space:]]|${TICKET_PREFIX}-[1-9][0-9]*([[:space:]]+-[[:space:]]+|[[:space:]]+|:[[:space:]]*|-)) ]]; then
+          echo "Expected format: '${TICKET_PREFIX}-<number>: <description>' (supports multiple tickets and various separators)"
+
+          # Define the pattern for a single ticket: PREFIX-NUMBER (no leading zeros, no zero)
+          ticket_pattern="${TICKET_PREFIX}-[1-9][0-9]*"
+
+          # Pattern for multiple tickets with various separators: space, comma, slash, or combinations
+          # Also supports brackets/parentheses around tickets
+          # Valid: AU-1: , AU-1 AU-2: , AU-1,AU-2: , AU-3 / AU-4: , (AU-5) , [AU-6]
+          if [[ "$PR_TITLE" =~ ^(\(|\[)?${TICKET_PREFIX}-[1-9][0-9]*(\)|\])?(([[:space:]]*[,/][[:space:]]*|\[)?${TICKET_PREFIX}-[1-9][0-9]*(\])?)*([[:space:]]*:?[[:space:]]*-?[[:space:]]+) ]]; then
             echo "✅ PR title is valid."
           else
-            echo "::error title=Invalid PR title::Title must start with '${TICKET_PREFIX}-' followed by a non-zero number and a separator (colon, space, or dash)."
-            echo "Examples of INVALID titles:"
-            echo "  ❌ '${TICKET_PREFIX}-0: Fix' (zero ticket number)"
-            echo "  ❌ '${TICKET_PREFIX}-8Update' (no separator after number)"
-            echo "  ❌ '${TICKET_PREFIX,,}-5: Fix' (lowercase prefix)"
+            echo "::error title=Invalid PR title::Title must start with '${TICKET_PREFIX}-' followed by a non-zero number (no leading zeros)."
             echo ""
             echo "Examples of VALID titles:"
-            echo "  ✅ '${TICKET_PREFIX}-4: Fix login bug'"
-            echo "  ✅ '${TICKET_PREFIX}-5 Update feature'"
-            echo "  ✅ '${TICKET_PREFIX}-8-Clean up blank lines'"
-            echo "  ✅ '${TICKET_PREFIX}-123 - Add documentation'"
-            echo "  ✅ '[${TICKET_PREFIX}-8] Clean up blank lines'"
-            echo "  ✅ '[${TICKET_PREFIX}-8] -Clean up blank lines'"
+            echo "  ✅ '${TICKET_PREFIX}-1: Fix login'"
+            echo "  ✅ '${TICKET_PREFIX}-1 ${TICKET_PREFIX}-2: Implement feature'"
+            echo "  ✅ '${TICKET_PREFIX}-1,${TICKET_PREFIX}-2: Cleanup'"
+            echo "  ✅ '${TICKET_PREFIX}-3 / ${TICKET_PREFIX}-4: Refactor'"
+            echo "  ✅ '(${TICKET_PREFIX}-5) Improve tests'"
+            echo "  ✅ '[${TICKET_PREFIX}-6] Add documentation'"
+            echo ""
+            echo "Examples of INVALID titles:"
+            echo "  ❌ '${TICKET_PREFIX,,}-1' (lowercase prefix)"
+            echo "  ❌ '${TICKET_PREFIX}-0' (zero ticket number)"
+            echo "  ❌ '${TICKET_PREFIX}-00' (zero with leading zero)"
+            echo "  ❌ '${TICKET_PREFIX}-01' (leading zero)"
+            echo "  ❌ '${TICKET_PREFIX}-8Update' (no separator after number)"
             exit 1
           fi
