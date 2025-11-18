@@ -31,12 +31,19 @@ jobs:
           TICKET_PREFIX: ${{ inputs.ticket-prefix || 'KAN' }}
         run: |
           echo "PR title: '$PR_TITLE'"
-          echo "Expected prefix: '$TICKET_PREFIX-'"
-          if [[ "$PR_TITLE" =~ ^${TICKET_PREFIX}-[1-9][0-9]* ]]; then
+          echo "Expected format: '${TICKET_PREFIX}-<number>: <description>' or '${TICKET_PREFIX}-<number> <description>'"
+          if [[ "$PR_TITLE" =~ ^${TICKET_PREFIX}-[1-9][0-9]*([:\s]|[[:space:]]-) ]]; then
             echo "✅ PR title is valid."
           else
-            echo "::error title=Invalid PR title::Title must start with '${TICKET_PREFIX}-' followed by a non-zero number (e.g., '${TICKET_PREFIX}-1', '${TICKET_PREFIX}-5', '${TICKET_PREFIX}-123')."
-            echo "Examples of invalid titles: '${TICKET_PREFIX}-0', '${TICKET_PREFIX}-00', '${TICKET_PREFIX,,}-5' (lowercase)"
-            echo "Examples of valid titles: '${TICKET_PREFIX}-4: Fix login', '${TICKET_PREFIX}-5 ${TICKET_PREFIX}-6: Implement feature'"
+            echo "::error title=Invalid PR title::Title must start with '${TICKET_PREFIX}-' followed by a non-zero number and a separator (colon, space, or dash)."
+            echo "Examples of INVALID titles:"
+            echo "  ❌ '${TICKET_PREFIX}-0: Fix' (zero ticket number)"
+            echo "  ❌ '${TICKET_PREFIX}-8Update' (no separator after number)"
+            echo "  ❌ '${TICKET_PREFIX,,}-5: Fix' (lowercase prefix)"
+            echo ""
+            echo "Examples of VALID titles:"
+            echo "  ✅ '${TICKET_PREFIX}-4: Fix login bug'"
+            echo "  ✅ '${TICKET_PREFIX}-5 Update feature'"
+            echo "  ✅ '${TICKET_PREFIX}-123 - Add documentation'"
             exit 1
           fi
