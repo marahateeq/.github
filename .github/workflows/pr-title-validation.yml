@@ -4,16 +4,16 @@ on:
   workflow_call:
     inputs:
       ticket-prefix:
-        description: 'Ticket prefix pattern (e.g., KAN, JIRA, TICKET)'
+        description: 'Ticket prefix pattern (e.g., KAN, JIRA, TICKET, AU)'
         required: false
         type: string
         default: 'KAN'
   pull_request:
     branches:
-      - 'KAN-*'  # Matches feature branches like KAN-5-connect-GitHub-repo-to-Jira
       - main
       - master
       - dev
+      - develop
     types: [opened, edited, reopened, synchronize, ready_for_review]
 
 jobs:
