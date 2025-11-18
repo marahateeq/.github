@@ -199,7 +199,7 @@ jobs:
             echo "  🔍 Normalized status: '$normalized_status' (checking if equals 'in progress')"
 
             # Check if status is "In Progress" (ONLY this status is allowed)
-            if [[ "$normalized_status" == "in progress" ]]; then
+            if [[ "$normalized_status" == "In Progress" ]]; then
               echo "  ✅ Status is VALID - Ticket is 'In Progress'"
 
               # Add PR comment to Jira issue
