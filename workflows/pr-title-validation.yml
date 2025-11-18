@@ -2,6 +2,12 @@ name: Required - PR title follows KAN ticket pattern
 
 on:
   workflow_call:
+    inputs:
+      ticket-prefix:
+        description: 'Ticket prefix pattern (e.g., KAN, JIRA, TICKET)'
+        required: false
+        type: string
+        default: 'KAN'
   pull_request:
     branches:
       - 'KAN-*'  # Matches feature branches like KAN-5-connect-GitHub-repo-to-Jira
@@ -18,17 +24,19 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - name: Check PR title starts with KAN-<non-zero number>
+      - name: Check PR title starts with ticket number
         shell: bash
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
+          TICKET_PREFIX: ${{ inputs.ticket-prefix || 'KAN' }}
         run: |
           echo "PR title: '$PR_TITLE'"
-          if [[ "$PR_TITLE" =~ ^KAN-[1-9][0-9]* ]]; then
+          echo "Expected prefix: '$TICKET_PREFIX-'"
+          if [[ "$PR_TITLE" =~ ^${TICKET_PREFIX}-[1-9][0-9]* ]]; then
             echo "✅ PR title is valid."
           else
-            echo "::error title=Invalid PR title::Title must start with 'KAN-' followed by a non-zero number (e.g., 'KAN-1', 'KAN-5', 'KAN-123')."
-            echo "Examples of invalid titles: 'KAN-0', 'KAN-00', 'kan-5' (lowercase)"
-            echo "Examples of valid titles: 'KAN-4: Fix login', 'KAN-5 KAN-6: Implement feature'"
+            echo "::error title=Invalid PR title::Title must start with '${TICKET_PREFIX}-' followed by a non-zero number (e.g., '${TICKET_PREFIX}-1', '${TICKET_PREFIX}-5', '${TICKET_PREFIX}-123')."
+            echo "Examples of invalid titles: '${TICKET_PREFIX}-0', '${TICKET_PREFIX}-00', '${TICKET_PREFIX,,}-5' (lowercase)"
+            echo "Examples of valid titles: '${TICKET_PREFIX}-4: Fix login', '${TICKET_PREFIX}-5 ${TICKET_PREFIX}-6: Implement feature'"
             exit 1
           fi
