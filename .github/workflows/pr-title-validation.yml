@@ -142,12 +142,15 @@ jobs:
             status=$(echo "$body" | grep -o '"status":{[^}]*"name":"[^"]*"' | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
             summary=$(echo "$body" | grep -o '"summary":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-            echo "  Status: $status"
-            echo "  Summary: $summary"
+            echo "  📋 Summary: $summary"
+            echo "  📊 Current Status: '$status'"
 
-            # Check if status is "In Progress" (case-insensitive)
-            if [[ "${status,,}" == "in progress" ]]; then
-              echo "  ✅ Status is valid"
+            # Normalize status for comparison (trim whitespace, convert to lowercase)
+            normalized_status=$(echo "${status}" | xargs | tr '[:upper:]' '[:lower:]')
+
+            # Check if status is "In Progress" (ONLY this status is allowed)
+            if [[ "$normalized_status" == "in progress" ]]; then
+              echo "  ✅ Status is VALID - Ticket is 'In Progress'"
 
               # Add PR comment to Jira issue
               comment_body=$(cat <<EOF
@@ -213,9 +216,10 @@ jobs:
               fi
 
             else
-              echo "::error title=Invalid Jira status::Ticket $ticket has status '$status' but must be 'In Progress'"
+              echo "  ❌ Status is INVALID - Ticket must be 'In Progress'"
+              echo "::error title=Invalid Jira status::Ticket $ticket has status '$status' but MUST be 'In Progress' before creating a PR"
               all_valid=false
-              invalid_tickets="$invalid_tickets\n  ❌ $ticket - Status is '$status' (expected 'In Progress')"
+              invalid_tickets="$invalid_tickets\n  ❌ $ticket - Status is '$status' (MUST be 'In Progress')"
             fi
           done
 
@@ -223,11 +227,14 @@ jobs:
           if [ "$all_valid" = false ]; then
             echo "::error title=Jira validation failed::One or more tickets have invalid status"
             echo ""
-            echo "❌ Validation failed for the following tickets:"
+            echo "❌ Validation FAILED for the following tickets:"
             echo -e "$invalid_tickets"
             echo ""
-            echo "📋 Required: All tickets must have status 'In Progress' before the PR can be merged."
+            echo "📋 REQUIREMENT: All tickets MUST have status 'In Progress' before the PR can be merged."
+            echo ""
+            echo "💡 Action Required: Move ticket(s) to 'In Progress' status in Jira, then re-run this check."
             exit 1
           else
-            echo "✅ All Jira tickets are valid and in 'In Progress' status"
+            echo "✅ SUCCESS: All Jira tickets are in 'In Progress' status"
+            echo "📝 PR comments have been posted to the Jira ticket(s)"
           fi
