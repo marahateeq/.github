@@ -103,6 +103,12 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_CREATED_AT: ${{ github.event.pull_request.created_at }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at }}
+          PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          REPO_FULL_NAME: ${{ github.repository }}
         run: |
           # Skip if no Jira configuration provided
           if [ -z "$JIRA_BASE_URL" ] || [ -z "$JIRA_EMAIL" ] || [ -z "$JIRA_API_TOKEN" ]; then
@@ -268,53 +274,37 @@ jobs:
             if [[ "$normalized_status" == "in progress" || "$normalized_status" =~ ^in[[:space:]]*progress$ ]]; then
               echo "  ✅ Status is VALID - Ticket is 'In Progress'"
 
-              # Add PR comment to Jira issue
-              comment_body=$(cat <<EOF
-          {
-            "body": {
-              "type": "doc",
-              "version": 1,
-              "content": [
-                {
-                  "type": "paragraph",
-                  "content": [
-                    {
-                      "type": "text",
-                      "text": "Pull Request #${PR_NUMBER} created: "
-                    },
-                    {
-                      "type": "text",
-                      "text": "${PR_TITLE}",
-                      "marks": [{"type": "strong"}]
-                    }
-                  ]
-                },
-                {
-                  "type": "paragraph",
-                  "content": [
-                    {
-                      "type": "text",
-                      "text": "🔗 "
-                    },
-                    {
-                      "type": "text",
-                      "text": "${PR_URL}",
-                      "marks": [
-                        {
-                          "type": "link",
-                          "attrs": {
-                            "href": "${PR_URL}"
-                          }
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-          EOF
-              )
+              pr_created="${PR_CREATED_AT:-"Unknown"}"
+              pr_updated="${PR_UPDATED_AT:-"Unknown"}"
+              pr_merged="${PR_MERGED_AT:-"Not merged yet"}"
+              head_ref="${PR_HEAD_REF:-"unknown"}"
+              base_ref="${PR_BASE_REF:-"unknown"}"
+              repo_name="${REPO_FULL_NAME:-$GITHUB_REPOSITORY}"
+
+              summary_line="${summary}"
+              status_line="$(echo "$status" | xargs)"
+
+              comment_body=$(jq -n \
+                --arg line1 "✅ GitHub PR validated: ${PR_TITLE}" \
+                --arg line2 "${status_line} — ${ticket}: ${summary_line}" \
+                --arg line3 "🔗 PR URL: ${PR_URL}" \
+                --arg line4 "📅 Created: ${pr_created} | Updated: ${pr_updated} | Merged: ${pr_merged}" \
+                --arg line5 "🌿 ${head_ref} → ${base_ref}" \
+                --arg line6 "📦 Repository: ${repo_name}" \
+                '{
+                  body:{
+                    type:"doc",
+                    version:1,
+                    content:[
+                      {type:"paragraph",content:[{type:"text",text:$line1}]},
+                      {type:"paragraph",content:[{type:"text",text:$line2}]},
+                      {type:"paragraph",content:[{type:"text",text:$line3}]},
+                      {type:"paragraph",content:[{type:"text",text:$line4}]},
+                      {type:"paragraph",content:[{type:"text",text:$line5}]},
+                      {type:"paragraph",content:[{type:"text",text:$line6}]}
+                    ]
+                  }
+                }')
 
               comment_response=$(curl -s -w "\n%{http_code}" \
                 -X POST \
@@ -326,9 +316,9 @@ jobs:
               comment_http_code=$(echo "$comment_response" | tail -n1)
 
               if [ "$comment_http_code" -eq 201 ]; then
-                echo "  ✅ PR comment added to Jira ticket"
+                echo "  ✅ Jira comment added"
               else
-                echo "  ⚠️  Failed to add comment to Jira (HTTP $comment_http_code)"
+                echo "  ⚠️  Failed to add Jira comment (HTTP $comment_http_code)"
               fi
 
             else
